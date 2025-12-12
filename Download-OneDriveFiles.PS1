@@ -174,7 +174,7 @@ function Format-FileSize {
         Formats a file size in bytes to a human-readable string.
     #>
     param (
-        [parameter(Mandatory = $true)]
+        [Parameter(Mandatory = $true)]
         [long]$InFileSize
     )
     
@@ -247,7 +247,7 @@ if ([string]::IsNullOrWhiteSpace($DownloadPath)) {
 }
 
 # Sanitize the download path by adding the user's display name
-$SafeUserName = $OneDriveInfo.Owner.User.DisplayName -replace '[\\/:*?\"<>|]', '_'
+$SafeUserName = Sanitize-FileName -Name $OneDriveInfo.Owner.User.DisplayName
 $DownloadPath = Join-Path -Path $DownloadPath -ChildPath $SafeUserName
 
 # Create the download directory if it doesn't exist
@@ -262,7 +262,7 @@ Write-Host "Starting download process..." -ForegroundColor Yellow
 Write-Host ""
 
 # Record start time
-[datetime]$StartTime = Get-Date
+$StartTime = Get-Date
 
 # Start downloading from the root folder
 try {
@@ -272,7 +272,7 @@ try {
 }
 
 # Record end time and calculate duration
-[datetime]$EndTime = Get-Date
+$EndTime = Get-Date
 $Duration = $EndTime - $StartTime
 
 # Generate summary report
