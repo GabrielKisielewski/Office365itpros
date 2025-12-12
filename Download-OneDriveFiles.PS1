@@ -61,11 +61,11 @@ function Download-DriveItems {
     
     try {
         # Get items in the current folder
-        [array]$Items = Get-MgDriveItemChild -DriveId $Drive -DriveItemId $FolderId -All -ErrorAction Stop
+        $Items = Get-MgDriveItemChild -DriveId $Drive -DriveItemId $FolderId -All -ErrorAction Stop
         
         # Split into files and folders
-        [array]$Folders = $Items | Where-Object { $_.Folder }
-        [array]$Files = $Items | Where-Object { $_.File }
+        $Folders = $Items | Where-Object { $_.Folder }
+        $Files = $Items | Where-Object { $_.File }
         
         # Download files in the current folder
         foreach ($File in $Files) {
@@ -85,11 +85,12 @@ function Download-DriveItems {
                 $Script:TotalBytesDownloaded += $File.Size
                 
                 # Set file timestamps to match OneDrive
+                $FileItem = Get-Item $FilePath
                 if ($File.CreatedDateTime) {
-                    (Get-Item $FilePath).CreationTime = $File.CreatedDateTime
+                    $FileItem.CreationTime = $File.CreatedDateTime
                 }
                 if ($File.LastModifiedDateTime) {
-                    (Get-Item $FilePath).LastWriteTime = $File.LastModifiedDateTime
+                    $FileItem.LastWriteTime = $File.LastModifiedDateTime
                 }
                 
                 $DownloadInfo = [PSCustomObject]@{
