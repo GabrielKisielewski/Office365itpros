@@ -198,7 +198,7 @@ if ([string]::IsNullOrWhiteSpace($UserPrincipalName)) {
 # Get the user's OneDrive account
 Write-Host "Retrieving OneDrive account information..." -ForegroundColor Yellow
 try {
-    [array]$OneDriveInfo = Get-MgUserDefaultDrive -UserId $UserPrincipalName -ErrorAction Stop
+    $OneDriveInfo = Get-MgUserDefaultDrive -UserId $UserPrincipalName -ErrorAction Stop
 } catch {
     Write-Host ("Error: Could not retrieve OneDrive account for {0}: {1}" -f $UserPrincipalName, $_.Exception.Message) -ForegroundColor Red
     exit 1
@@ -217,11 +217,11 @@ Write-Host ""
 
 # Determine download path
 if ([string]::IsNullOrWhiteSpace($DownloadPath)) {
-    $DownloadPath = Join-Path -Path ([Environment]::GetFolderPath("UserProfile")) -ChildPath "Downloads\OneDrive-Download"
+    $DownloadPath = Join-Path -Path ([Environment]::GetFolderPath("Downloads")) -ChildPath "OneDrive-Download"
 }
 
 # Sanitize the download path by adding the user's display name
-$SafeUserName = $OneDriveInfo.Owner.User.DisplayName -replace '[\\/:*?"<>|]', '_'
+$SafeUserName = $OneDriveInfo.Owner.User.DisplayName -replace '[\\/:*?\"<>|]', '_'
 $DownloadPath = Join-Path -Path $DownloadPath -ChildPath $SafeUserName
 
 # Create the download directory if it doesn't exist
