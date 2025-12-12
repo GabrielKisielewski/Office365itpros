@@ -20,6 +20,10 @@
     The local path where files should be downloaded. If not specified, files will be 
     downloaded to a 'OneDrive-Download' folder in the user's Downloads directory.
 
+.PARAMETER LogFilePath
+    The path to the log file. If not specified, a log file will be created in the 
+    download directory with the name 'Download-Log-<timestamp>.txt'.
+
 .EXAMPLE
     .\Download-OneDriveFiles.PS1
     Downloads files from the signed-in user's OneDrive to the default location.
@@ -39,8 +43,47 @@ param(
     [string]$UserPrincipalName,
     
     [Parameter(Mandatory = $false)]
-    [string]$DownloadPath
+    [string]$DownloadPath,
+    
+    [Parameter(Mandatory = $false)]
+    [string]$LogFilePath
 )
+
+function Write-Log {
+    <#
+    .SYNOPSIS
+        Writes a log message to both console and log file.
+    #>
+    param (
+        [Parameter(Mandatory = $true)]
+        [string]$Message,
+        
+        [Parameter(Mandatory = $false)]
+        [ValidateSet('Info', 'Warning', 'Error', 'Success')]
+        [string]$Level = 'Info'
+    )
+    
+    $Timestamp = Get-Date -Format 'yyyy-MM-dd HH:mm:ss'
+    $LogMessage = "[$Timestamp] [$Level] $Message"
+    
+    # Write to console with color
+    switch ($Level) {
+        'Info'    { Write-Host $Message -ForegroundColor Cyan }
+        'Warning' { Write-Host $Message -ForegroundColor Yellow }
+        'Error'   { Write-Host $Message -ForegroundColor Red }
+        'Success' { Write-Host $Message -ForegroundColor Green }
+        default   { Write-Host $Message }
+    }
+    
+    # Write to log file if path is set
+    if ($Script:LogFilePath) {
+        try {
+            Add-Content -Path $Script:LogFilePath -Value $LogMessage -ErrorAction Stop
+        } catch {
+            Write-Host "Warning: Failed to write to log file: $($_.Exception.Message)" -ForegroundColor Yellow
+        }
+    }
+}
 
 function Sanitize-FileName {
     <#
@@ -88,7 +131,7 @@ function Download-DriveItems {
     
     # Prevent excessive recursion depth
     if ($Depth -ge $MaxDepth) {
-        Write-Host ("Warning: Maximum folder depth ({0}) reached. Skipping deeper folders." -f $MaxDepth) -ForegroundColor Yellow
+        Write-Log -Message ("Warning: Maximum folder depth ({0}) reached. Skipping deeper folders." -f $MaxDepth) -Level Warning
         return
     }
     
@@ -106,7 +149,7 @@ function Download-DriveItems {
             $SafeFileName = Sanitize-FileName -Name $File.Name
             $FilePath = Join-Path -Path $LocalPath -ChildPath $SafeFileName
             
-            Write-Host ("Downloading file: {0} ({1})" -f $File.Name, (Format-FileSize $File.Size)) -ForegroundColor Cyan
+            Write-Log -Message ("Downloading file: {0} ({1})" -f $File.Name, (Format-FileSize $File.Size)) -Level Info
             
             try {
                 # Get the download URL for the file
@@ -141,7 +184,7 @@ function Download-DriveItems {
                 $Script:DownloadReport.Add($DownloadInfo)
                 
             } catch {
-                Write-Host ("  Error downloading file {0}: {1}" -f $File.Name, $_.Exception.Message) -ForegroundColor Red
+                Write-Log -Message ("  Error downloading file {0}: {1}" -f $File.Name, $_.Exception.Message) -Level Error
                 $Script:FailedFiles++
                 
                 $DownloadInfo = [PSCustomObject]@{
@@ -166,17 +209,17 @@ function Download-DriveItems {
             # Create subfolder if it doesn't exist
             if (-not (Test-Path -Path $SubfolderPath)) {
                 New-Item -Path $SubfolderPath -ItemType Directory -Force | Out-Null
-                Write-Host ("Created folder: {0}" -f $SubfolderPath) -ForegroundColor Yellow
+                Write-Log -Message ("Created folder: {0}" -f $SubfolderPath) -Level Warning
             }
             
-            Write-Host ("Processing folder: {0} ({1} items)" -f $Folder.Name, $Folder.Folder.ChildCount) -ForegroundColor Green
+            Write-Log -Message ("Processing folder: {0} ({1} items)" -f $Folder.Name, $Folder.Folder.ChildCount) -Level Success
             
             # Recursively download from this folder
             Download-DriveItems -Drive $Drive -FolderId $Folder.Id -LocalPath $SubfolderPath -Depth ($Depth + 1) -MaxDepth $MaxDepth
         }
         
     } catch {
-        Write-Host ("Error processing folder: {0}" -f $_.Exception.Message) -ForegroundColor Red
+        Write-Log -Message ("Error processing folder: {0}" -f $_.Exception.Message) -Level Error
     }
 }
 
@@ -203,6 +246,9 @@ function Format-FileSize {
 
 # Main script execution starts here
 
+# Initialize log file path (will be set later after determining download path)
+$Script:LogFilePath = $null
+
 Write-Host "==================================================" -ForegroundColor Cyan
 Write-Host "OneDrive for Business File Download Script" -ForegroundColor Cyan
 Write-Host "==================================================" -ForegroundColor Cyan
@@ -217,37 +263,37 @@ $Script:TotalBytesDownloaded = 0
 $Script:DownloadReport = [System.Collections.Generic.List[Object]]::new()
 
 # Connect to Microsoft Graph with required permissions
-Write-Host "Connecting to Microsoft Graph..." -ForegroundColor Yellow
+Write-Log -Message "Connecting to Microsoft Graph..." -Level Warning
 try {
     Connect-MgGraph -Scopes "Files.Read.All", "User.Read.All" -NoWelcome -ErrorAction Stop
 } catch {
-    Write-Host "Error: Failed to connect to Microsoft Graph: $($_.Exception.Message)" -ForegroundColor Red
+    Write-Log -Message "Error: Failed to connect to Microsoft Graph: $($_.Exception.Message)" -Level Error
     exit 1
 }
 
 # Determine which user's OneDrive to access
 if ([string]::IsNullOrWhiteSpace($UserPrincipalName)) {
     $UserPrincipalName = (Get-MgContext).Account
-    Write-Host ("Using signed-in user's account: {0}" -f $UserPrincipalName) -ForegroundColor Green
+    Write-Log -Message ("Using signed-in user's account: {0}" -f $UserPrincipalName) -Level Success
 } else {
-    Write-Host ("Accessing OneDrive for user: {0}" -f $UserPrincipalName) -ForegroundColor Green
+    Write-Log -Message ("Accessing OneDrive for user: {0}" -f $UserPrincipalName) -Level Success
 }
 
 # Get the user's OneDrive account
-Write-Host "Retrieving OneDrive account information..." -ForegroundColor Yellow
+Write-Log -Message "Retrieving OneDrive account information..." -Level Warning
 try {
     $OneDriveInfo = Get-MgUserDefaultDrive -UserId $UserPrincipalName -ErrorAction Stop
 } catch {
-    Write-Host ("Error: Could not retrieve OneDrive account for {0}: {1}" -f $UserPrincipalName, $_.Exception.Message) -ForegroundColor Red
+    Write-Log -Message ("Error: Could not retrieve OneDrive account for {0}: {1}" -f $UserPrincipalName, $_.Exception.Message) -Level Error
     exit 1
 }
 
 if (-not $OneDriveInfo) {
-    Write-Host ("Error: No OneDrive for Business account found for {0}" -f $UserPrincipalName) -ForegroundColor Red
+    Write-Log -Message ("Error: No OneDrive for Business account found for {0}" -f $UserPrincipalName) -Level Error
     exit 1
 }
 
-Write-Host ("Found OneDrive account: {0}" -f $OneDriveInfo.Owner.User.DisplayName) -ForegroundColor Green
+Write-Log -Message ("Found OneDrive account: {0}" -f $OneDriveInfo.Owner.User.DisplayName) -Level Success
 Write-Host ("  WebUrl: {0}" -f $OneDriveInfo.WebUrl) -ForegroundColor Gray
 Write-Host ("  Total Quota: {0}" -f (Format-FileSize $OneDriveInfo.Quota.Total)) -ForegroundColor Gray
 Write-Host ("  Used Quota: {0}" -f (Format-FileSize $OneDriveInfo.Quota.Used)) -ForegroundColor Gray
@@ -261,7 +307,7 @@ if ([string]::IsNullOrWhiteSpace($DownloadPath)) {
     try {
         $DownloadPath = [System.IO.Path]::GetFullPath($DownloadPath)
     } catch {
-        Write-Host ("Error: Invalid download path specified: {0}" -f $_.Exception.Message) -ForegroundColor Red
+        Write-Log -Message ("Error: Invalid download path specified: {0}" -f $_.Exception.Message) -Level Error
         exit 1
     }
 }
@@ -272,13 +318,42 @@ $DownloadPath = Join-Path -Path $DownloadPath -ChildPath $SafeUserName
 
 # Create the download directory if it doesn't exist
 if (-not (Test-Path -Path $DownloadPath)) {
-    Write-Host ("Creating download directory: {0}" -f $DownloadPath) -ForegroundColor Yellow
+    Write-Log -Message ("Creating download directory: {0}" -f $DownloadPath) -Level Warning
     New-Item -Path $DownloadPath -ItemType Directory -Force | Out-Null
 }
 
-Write-Host ("Download location: {0}" -f $DownloadPath) -ForegroundColor Green
+# Initialize log file if not provided
+if ([string]::IsNullOrWhiteSpace($LogFilePath)) {
+    $LogFileName = "Download-Log-{0}.txt" -f (Get-Date -Format 'yyyyMMdd-HHmmss')
+    $Script:LogFilePath = Join-Path -Path $DownloadPath -ChildPath $LogFileName
+} else {
+    $Script:LogFilePath = $LogFilePath
+}
+
+# Create log file and write header
+try {
+    $LogHeader = @"
+==================================================
+OneDrive for Business File Download Log
+==================================================
+Script Version: 1.0
+Start Time: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')
+User Account: $UserPrincipalName
+OneDrive Owner: $($OneDriveInfo.Owner.User.DisplayName)
+Download Path: $DownloadPath
+==================================================
+
+"@
+    Set-Content -Path $Script:LogFilePath -Value $LogHeader -ErrorAction Stop
+    Write-Log -Message ("Log file created: {0}" -f $Script:LogFilePath) -Level Success
+} catch {
+    Write-Host ("Warning: Failed to create log file: {0}" -f $_.Exception.Message) -ForegroundColor Yellow
+    $Script:LogFilePath = $null
+}
+
+Write-Log -Message ("Download location: {0}" -f $DownloadPath) -Level Success
 Write-Host ""
-Write-Host "Starting download process..." -ForegroundColor Yellow
+Write-Log -Message "Starting download process..." -Level Warning
 Write-Host ""
 
 # Record start time
@@ -288,7 +363,7 @@ $StartTime = Get-Date
 try {
     Download-DriveItems -Drive $OneDriveInfo.Id -FolderId "root" -LocalPath $DownloadPath
 } catch {
-    Write-Host ("Error during download process: {0}" -f $_.Exception.Message) -ForegroundColor Red
+    Write-Log -Message ("Error during download process: {0}" -f $_.Exception.Message) -Level Error
 }
 
 # Record end time and calculate duration
@@ -311,11 +386,30 @@ Write-Host ("Total Data Downloaded: {0}" -f (Format-FileSize $Script:TotalBytesD
 Write-Host ("Duration: {0}:{1:D2}:{2:D2}" -f $Duration.Hours, $Duration.Minutes, $Duration.Seconds) -ForegroundColor White
 Write-Host ""
 
+# Write summary to log file
+if ($Script:LogFilePath) {
+    $LogSummary = @"
+
+==================================================
+Download Summary
+==================================================
+End Time: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')
+Total Files Found: $($Script:TotalFiles)
+Files Downloaded Successfully: $($Script:DownloadedFiles)
+Files Failed to Download: $($Script:FailedFiles)
+Total Folders Processed: $($Script:TotalFolders)
+Total Data Downloaded: $(Format-FileSize $Script:TotalBytesDownloaded)
+Duration: $($Duration.Hours):$($Duration.Minutes.ToString('00')):$($Duration.Seconds.ToString('00'))
+==================================================
+"@
+    Add-Content -Path $Script:LogFilePath -Value $LogSummary
+}
+
 # Export detailed report to CSV
 if ($Script:DownloadReport.Count -gt 0) {
     $ReportFile = Join-Path -Path $DownloadPath -ChildPath "Download-Report.csv"
     $Script:DownloadReport | Export-Csv -Path $ReportFile -NoTypeInformation -Encoding UTF8
-    Write-Host ("Detailed download report saved to: {0}" -f $ReportFile) -ForegroundColor Green
+    Write-Log -Message ("Detailed download report saved to: {0}" -f $ReportFile) -Level Success
 }
 
 # Show failed downloads if any
@@ -323,6 +417,11 @@ if ($Script:FailedFiles -gt 0) {
     Write-Host ""
     Write-Host "Failed Downloads:" -ForegroundColor Red
     $Script:DownloadReport | Where-Object { $_.DownloadStatus -ne "Success" } | Format-Table FileName, DownloadStatus -AutoSize
+}
+
+# Log completion
+if ($Script:LogFilePath) {
+    Write-Log -Message ("Log file saved to: {0}" -f $Script:LogFilePath) -Level Success
 }
 
 Write-Host ""
