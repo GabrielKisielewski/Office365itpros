@@ -77,8 +77,20 @@ function Download-DriveItems {
         $FolderId,
         
         [Parameter(Mandatory = $true)]
-        [string]$LocalPath
+        [string]$LocalPath,
+        
+        [Parameter(Mandatory = $false)]
+        [int]$Depth = 0,
+        
+        [Parameter(Mandatory = $false)]
+        [int]$MaxDepth = 100
     )
+    
+    # Prevent excessive recursion depth
+    if ($Depth -ge $MaxDepth) {
+        Write-Host ("Warning: Maximum folder depth ({0}) reached. Skipping deeper folders." -f $MaxDepth) -ForegroundColor Yellow
+        return
+    }
     
     try {
         # Get items in the current folder
@@ -160,7 +172,7 @@ function Download-DriveItems {
             Write-Host ("Processing folder: {0} ({1} items)" -f $Folder.Name, $Folder.Folder.ChildCount) -ForegroundColor Green
             
             # Recursively download from this folder
-            Download-DriveItems -Drive $Drive -FolderId $Folder.Id -LocalPath $SubfolderPath
+            Download-DriveItems -Drive $Drive -FolderId $Folder.Id -LocalPath $SubfolderPath -Depth ($Depth + 1) -MaxDepth $MaxDepth
         }
         
     } catch {
@@ -244,6 +256,14 @@ Write-Host ""
 # Determine download path
 if ([string]::IsNullOrWhiteSpace($DownloadPath)) {
     $DownloadPath = Join-Path -Path ([Environment]::GetFolderPath("Downloads")) -ChildPath "OneDrive-Download"
+} else {
+    # Validate user-provided path exists or can be created
+    try {
+        $DownloadPath = [System.IO.Path]::GetFullPath($DownloadPath)
+    } catch {
+        Write-Host ("Error: Invalid download path specified: {0}" -f $_.Exception.Message) -ForegroundColor Red
+        exit 1
+    }
 }
 
 # Sanitize the download path by adding the user's display name
