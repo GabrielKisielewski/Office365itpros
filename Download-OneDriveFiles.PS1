@@ -42,6 +42,27 @@ param(
     [string]$DownloadPath
 )
 
+function Sanitize-FileName {
+    <#
+    .SYNOPSIS
+        Sanitizes a file or folder name to prevent directory traversal and invalid characters.
+    #>
+    param (
+        [Parameter(Mandatory = $true)]
+        [string]$Name
+    )
+    
+    # Remove path separators and invalid characters
+    $SanitizedName = $Name -replace '[\\/:*?\"<>|]', '_'
+    # Remove any leading or trailing dots or spaces
+    $SanitizedName = $SanitizedName.Trim('. ')
+    # Prevent empty names
+    if ([string]::IsNullOrWhiteSpace($SanitizedName)) {
+        $SanitizedName = "unnamed"
+    }
+    return $SanitizedName
+}
+
 function Download-DriveItems {
     <#
     .SYNOPSIS
@@ -70,7 +91,8 @@ function Download-DriveItems {
         # Download files in the current folder
         foreach ($File in $Files) {
             $Script:TotalFiles++
-            $FilePath = Join-Path -Path $LocalPath -ChildPath $File.Name
+            $SafeFileName = Sanitize-FileName -Name $File.Name
+            $FilePath = Join-Path -Path $LocalPath -ChildPath $SafeFileName
             
             Write-Host ("Downloading file: {0} ({1})" -f $File.Name, (Format-FileSize $File.Size)) -ForegroundColor Cyan
             
@@ -85,12 +107,14 @@ function Download-DriveItems {
                 $Script:TotalBytesDownloaded += $File.Size
                 
                 # Set file timestamps to match OneDrive
-                $FileItem = Get-Item $FilePath
-                if ($File.CreatedDateTime) {
-                    $FileItem.CreationTime = $File.CreatedDateTime
-                }
-                if ($File.LastModifiedDateTime) {
-                    $FileItem.LastWriteTime = $File.LastModifiedDateTime
+                if ($File.CreatedDateTime -or $File.LastModifiedDateTime) {
+                    $FileItem = Get-Item $FilePath
+                    if ($File.CreatedDateTime) {
+                        $FileItem.CreationTime = $File.CreatedDateTime
+                    }
+                    if ($File.LastModifiedDateTime) {
+                        $FileItem.LastWriteTime = $File.LastModifiedDateTime
+                    }
                 }
                 
                 $DownloadInfo = [PSCustomObject]@{
@@ -124,7 +148,8 @@ function Download-DriveItems {
         # Process subfolders recursively
         foreach ($Folder in $Folders) {
             $Script:TotalFolders++
-            $SubfolderPath = Join-Path -Path $LocalPath -ChildPath $Folder.Name
+            $SafeFolderName = Sanitize-FileName -Name $Folder.Name
+            $SubfolderPath = Join-Path -Path $LocalPath -ChildPath $SafeFolderName
             
             # Create subfolder if it doesn't exist
             if (-not (Test-Path -Path $SubfolderPath)) {
